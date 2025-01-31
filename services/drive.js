@@ -3,7 +3,7 @@ const path = require("path");
 const fs = require("fs");
 
 // Load the service account credentials
-const credentialsPath = path.join(__dirname, "credentials1.json");
+const credentialsPath = path.join(__dirname, "credentials.json");
 const auth = new google.auth.GoogleAuth({
   keyFile: credentialsPath,
   scopes: ["https://www.googleapis.com/auth/drive"],
@@ -37,6 +37,110 @@ async function shareFolder(folderId, emailAddress) {
     console.log("Folder is accessible at:", result.data.webViewLink);
   } catch (error) {
     console.error("Error sharing folder:", error.message);
+  }
+}
+
+// Function to remove a user's access from a folder
+async function removeFolderAccess(folderId, emailAddress) {
+  try {
+    // Get the list of permissions for the file
+    const { data } = await drive.permissions.list({
+      fileId: folderId,
+      fields: "permissions(id, emailAddress)",
+    });
+
+    console.log(data);
+
+    // Find the permission ID associated with the email address
+    const permission = data.permissions.find(
+      (perm) => perm.emailAddress === emailAddress
+    );
+
+    if (!permission) {
+      console.log(`No permission found for ${emailAddress}.`);
+      return;
+    }
+
+    // Remove the permission
+    await drive.permissions.delete({
+      fileId: folderId,
+      permissionId: permission.id,
+    });
+
+    console.log(`Access removed for ${emailAddress}.`);
+  } catch (error) {
+    console.error("Error removing access:", error.message);
+  }
+}
+
+// Function to grant restricted access to a folder
+async function grantRestrictedAccess(folderId, emailAddress) {
+  try {
+    await drive.permissions.create({
+      fileId: folderId,
+      requestBody: {
+        type: "user",
+        role: "commenter", // Prevents downloading and editing
+        emailAddress: emailAddress,
+      },
+      fields: "id",
+    });
+
+    console.log(`Restricted access granted to ${emailAddress}.`);
+  } catch (error) {
+    console.error("Error granting access:", error.message);
+  }
+}
+
+// Function to grant access without download permissions
+async function grantNoDownloadAccess(folderId, emailAddress) {
+  try {
+    // Grant commenter access to the user
+    await drive.permissions.create({
+      fileId: folderId,
+      requestBody: {
+        type: "user",
+        role: "commenter", // Allows viewing and commenting
+        emailAddress: emailAddress,
+      },
+      fields: "id",
+    });
+
+    console.log(
+      `Access granted to ${emailAddress} without download permissions.`
+    );
+
+    // Apply content restriction to prevent downloading, printing, and copying
+    // await drive.files.update({
+    //   fileId: folderId,
+    //   requestBody: {
+    //     contentRestrictions: [
+    //       {
+    //         readOnly: true,
+    //         reason: "Prevent downloading, printing, and copying",
+    //       },
+    //     ],
+    //   },
+    // });
+
+    await drive.files.update({
+      fileId: folderId,
+      requestBody: {
+        contentRestrictions: [
+          {
+            readOnly: true,
+            reason: "Prevent downloading, printing, and copying",
+          },
+        ],
+      },
+    });
+
+    console.log(
+      `Access granted to ${emailAddress} with download restrictions.`
+    );
+  } catch (error) {
+    console.log(error);
+    console.error("Error granting access:", error.message);
   }
 }
 
@@ -105,12 +209,14 @@ async function createFolder(folderName) {
   }
 }
 
-async function uploadFileToFolder(fileName, filePath, folderId) {
+async function uploadFileToFolder(fileName, folderId) {
   // Initialize the metadata object for the file
   const fileMetadata = {
     name: fileName,
     parents: [folderId], // Specify the parent folder ID
   };
+
+  const filePath = path.join(__dirname, "send_email.py");
 
   const media = {
     mimeType: getMimeType(filePath), // Get mimeType based on file extension
@@ -164,13 +270,6 @@ function getMimeType(filePath) {
 }
 
 async function listAllFolders() {
-  // const auth = new google.auth.GoogleAuth({
-  //   keyFile: "path/to/credentials.json", // Path to your Service Account credentials file
-  //   scopes: ["https://www.googleapis.com/auth/drive.readonly"], // Read-only permission
-  // });
-
-  // const drive = google.drive({ version: "v3", auth });
-
   try {
     console.log("hello world");
     const response = await drive.files.list({
@@ -200,4 +299,7 @@ module.exports = {
   createFolder,
   uploadFileToFolder,
   createNestedFolder,
+  removeFolderAccess,
+  grantRestrictedAccess,
+  grantNoDownloadAccess,
 }; // Export the function for use in other modules or scripts
